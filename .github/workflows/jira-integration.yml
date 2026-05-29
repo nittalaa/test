@@ -1,0 +1,60 @@
+name: Jira Automation
+on:
+  pull_request:
+    types: [opened, closed]
+
+jobs:
+  update-jira-ticket:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira Key from Branch Name
+        id: extract_key
+        run: |
+          # Grabs the branch name (e.g., feature/DEMO-123-api)
+          BRANCH_NAME="${{ github.head_ref }}"
+          # Extracts the Jira Key using regex
+          JIRA_KEY=$(echo "$BRANCH_NAME" | grep -oE '[A-Z0-9]+-[0-9]+' | head -n 1)
+          
+          if [ -z "$JIRA_KEY" ]; then
+            echo "No Jira Key found in branch name. Exiting gracefully."
+            echo "key_found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Found Jira Key: $JIRA_KEY"
+          echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+          echo "key_found=true" >> $GITHUB_OUTPUT
+
+      - name: Transition Jira Issue (PR Opened)
+        if: steps.extract_key.outputs.key_found == 'true' && github.event.action == 'opened'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ISSUE_KEY: ${{ steps.extract_key.outputs.jira_key }}
+          TRANSITION_ID: "31" # <-- UPDATE THIS to your "In Review" ID
+        run: |
+          echo "Transitioning $JIRA_ISSUE_KEY to In Review..."
+          curl -s --request POST \
+            --url "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/transitions" \
+            --user "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --data "{\"transition\": {\"id\": \"${TRANSITION_ID}\"}}"
+
+      - name: Transition Jira Issue (PR Merged)
+        if: steps.extract_key.outputs.key_found == 'true' && github.event.action == 'closed' && github.event.pull_request.merged == true
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ISSUE_KEY: ${{ steps.extract_key.outputs.jira_key }}
+          TRANSITION_ID: "41" # <-- UPDATE THIS to your "Done" ID
+        run: |
+          echo "Transitioning $JIRA_ISSUE_KEY to Done..."
+          curl -s --request POST \
+            --url "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ISSUE_KEY}/transitions" \
+            --user "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --data "{\"transition\": {\"id\": \"${TRANSITION_ID}\"}}"
